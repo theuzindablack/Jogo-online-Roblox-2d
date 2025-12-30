@@ -2,12 +2,12 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Multiplayer 2D Completo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Multiplayer 2D - Sala</title>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <style>
 html,body{margin:0;padding:0;overflow:hidden;background:#1e272e;font-family:sans-serif;touch-action:none}
-canvas{display:block;background:#2ecc71}
+canvas{background:#2ecc71;display:block}
 #setup{position:fixed;inset:0;background:#000d;display:flex;flex-direction:column;justify-content:center;align-items:center;color:#fff;z-index:10}
 input,button{padding:12px;margin:5px;border:none;border-radius:8px;outline:none}
 button{cursor:pointer;color:#fff;font-weight:bold}
@@ -17,6 +17,7 @@ button{cursor:pointer;color:#fff;font-weight:bold}
 #msgs{flex:1;overflow-y:auto;color:#fff;font-size:12px;padding:8px}
 #chat input{border:none;padding:10px;background:#fff2;color:#fff;border-radius:0 0 8px 8px;width:calc(100% - 20px)}
 #btnChat{width:50px;height:50px;border-radius:50%;background:#3498db;font-size:20px;border:none;float:right}
+#btnLeave{position:absolute;top:10px;right:10px;width:100px;height:40px;background:#e74c3c;color:#fff;font-weight:bold;border:none;border-radius:8px;z-index:50;cursor:pointer}
 #joystick{position:absolute;bottom:40px;left:40px;width:120px;height:120px;border-radius:50%;background:#fff2}
 #stick{position:absolute;left:40px;top:40px;width:40px;height:40px;background:#fff;border-radius:50%;pointer-events:none}
 </style>
@@ -27,16 +28,15 @@ button{cursor:pointer;color:#fff;font-weight:bold}
   <h2>MULTIPLAYER</h2>
   <input id="nameIn" placeholder="Nome" value="Player">
   <input id="roomIn" placeholder="Sala" value="ABC123">
-  <div style="display:flex;">
-    <button style="background:#27ae60" onclick="start(true)">CRIAR</button>
-    <button style="background:#2980b9" onclick="start(false)">ENTRAR</button>
-  </div>
+  <button style="background:#27ae60" onclick="start(true)">CRIAR</button>
+  <button style="background:#2980b9" onclick="start(false)">ENTRAR</button>
 </div>
 
 <div id="hud">
   <div id="status">Offline</div>
   <div id="count">Jogadores: 1 / 5</div>
 </div>
+<button id="btnLeave" onclick="leaveRoom()">Sair</button>
 
 <div id="chatWrap">
   <div id="chat">
@@ -50,142 +50,132 @@ button{cursor:pointer;color:#fff;font-weight:bold}
 <div id="joystick"><div id="stick"></div></div>
 
 <script>
-const MAX_PLAYERS=5;
-const canvas=game, ctx=canvas.getContext("2d");
-canvas.width=innerWidth; canvas.height=innerHeight;
+const MAX_PLAYERS = 5;
+const canvas = game, ctx = canvas.getContext("2d");
+canvas.width = innerWidth; canvas.height = innerHeight;
 
 let peer, isHost=false, ready=false;
 let eu, outros={}, conns=[], joinOrder=[];
 
-// INICIAR
 function start(host){
-  isHost=host;
-  const nome=nameIn.value||"Player";
-  const sala=roomIn.value||"ABC123";
-  const id=host?"H_"+sala:"P_"+Math.random().toString(36).slice(2);
+  isHost = host;
+  const nome = nameIn.value || "Player";
+  const sala = roomIn.value || "ABC123";
+  const id = host ? "H_"+sala : "P_"+Math.random().toString(36).slice(2);
 
-  eu={id,name:nome,x:300,y:300,color:"#"+(Math.random()*0xffffff|0).toString(16).padStart(6,"0"),msg:"",msgTime:0};
+  eu = {id,name:nome,x:300,y:300,color:"#"+(Math.random()*0xffffff|0).toString(16).padStart(6,"0"),msg:"",msgTime:0};
 
   setup.style.display="none";
-  peer=new Peer(id);
+  peer = new Peer(id);
 
-  peer.on("error",err=>{alert("Erro: "+err.type);location.reload();});
+  peer.on("error", err => {
+    alert("Erro: " + err.type);
+    location.reload();
+  });
 
   peer.on("open",()=>{
     if(isHost){ status.textContent="HOST "+sala; joinOrder=[eu.id]; ready=true; }
     else setupConn(peer.connect("H_"+sala));
   });
 
-  peer.on("connection",setupConn);
+  peer.on("connection", setupConn);
 }
 
-// CONFIGURAR CONEXÕES
 function setupConn(c){
   c.on("open",()=>{
-    if(isHost){
-      if(conns.length+1>=MAX_PLAYERS){c.send({t:"full"}); c.close(); return;}
-      conns.push(c);
-    }else{conns=[c]; status.textContent="Online";}
-    c.send({t:"join",p:eu});
+    if(isHost) {
+        if(conns.length + 1 >= MAX_PLAYERS) { c.send({t:"full"}); c.close(); return; }
+        conns.push(c);
+    } else {
+        conns=[c];
+        status.textContent="Online";
+    }
+    c.send({t:"join", p:eu});
   });
 
-  c.on("data",d=>{
-    if(!d||!d.t)return;
+  c.on("data", d=>{
+    if(!d||!d.t) return;
 
-    if(d.t==="full"){alert("Sala cheia!"); location.reload();}
+    if(d.t==="full") { alert("Sala cheia!"); location.reload(); }
 
-    if(d.t==="join"){
-      outros[d.p.id]=d.p;
+    if(d.t==="closeRoom"){ alert("O host saiu. A sala foi fechada."); location.reload(); }
+
+    if(d.t==="join") {
+      outros[d.p.id] = d.p;
       if(!joinOrder.includes(d.p.id)) joinOrder.push(d.p.id);
-      addMsg("Sistema", d.p.name+" entrou");
-      if(isHost) broadcast({t:"sync",all:{...outros,[eu.id]:eu},order:joinOrder});
+      addMsg("Sistema", d.p.name + " entrou");
+      if(isHost) broadcast({t:"sync", all:{...outros, [eu.id]:eu}, order:joinOrder});
     }
 
-    if(d.t==="sync"){
-      for(let i in d.all) if(i!==eu.id) outros[i]=d.all[i];
+    if(d.t==="sync") {
+      for(let i in d.all) if(i !== eu.id) outros[i] = d.all[i];
       for(let i in outros) if(!d.all[i]) delete outros[i];
-      joinOrder=d.order;
-      ready=true;
+      joinOrder = d.order;
+      ready = true;
     }
 
-    if(d.t==="move"){
-      if(outros[d.id]){outros[d.id].x=d.x; outros[d.id].y=d.y;}
-      if(isHost) broadcast(d,c.peer);
+    if(d.t==="move") {
+      if(outros[d.id]) { outros[d.id].x = d.x; outros[d.id].y = d.y; }
+      if(isHost) broadcast(d, c.peer);
     }
 
-    if(d.t==="chat"){
-      const p=(d.id===eu.id)?eu:outros[d.id];
-      if(p){p.msg=d.msg; p.msgTime=Date.now();}
-      addMsg(d.name,d.msg);
-      if(isHost) broadcast(d,c.peer);
+    if(d.t==="chat") {
+      const p = (d.id === eu.id) ? eu : outros[d.id];
+      if(p) { p.msg = d.msg; p.msgTime = Date.now(); }
+      addMsg(d.name, d.msg);
+      if(isHost) broadcast(d, c.peer);
     }
 
-    if(d.t==="leave"){
-      if(outros[d.id]) addMsg("Sistema", outros[d.id].name+" saiu");
+    if(d.t==="leave") {
+      if(outros[d.id]) addMsg("Sistema", outros[d.id].name + " saiu");
       delete outros[d.id];
-      joinOrder=joinOrder.filter(i=>i!==d.id);
-      if(isHost) broadcast(d,c.peer);
+      joinOrder = joinOrder.filter(i => i !== d.id);
+      if(isHost) broadcast(d, c.peer);
     }
 
-    count.textContent=`Jogadores: ${Object.keys(outros).length+1} / ${MAX_PLAYERS}`;
+    count.textContent = `Jogadores: ${Object.keys(outros).length + 1} / ${MAX_PLAYERS}`;
   });
 
-  c.on("close",()=>{
-    const idSaiu=c.peer;
-    if(outros[idSaiu]) addMsg("Sistema", outros[idSaiu].name+" saiu");
-    delete outros[idSaiu];
-    joinOrder=joinOrder.filter(i=>i!==idSaiu);
-
-    if(isHost){
-      conns=conns.filter(conn=>conn.peer!==idSaiu);
-      broadcast({t:"leave",id:idSaiu});
-    } else if(idSaiu.startsWith("H_")){
-      // O host saiu
-      if(joinOrder[0]===eu.id) becomeHost();
-      else alert("O host saiu! Aguarde reconexão...");
+  c.on("close", () => {
+    const idSaiu = c.peer;
+    if(outros[idSaiu]){
+      addMsg("Sistema", outros[idSaiu].name + " saiu");
+      delete outros[idSaiu];
+      joinOrder = joinOrder.filter(i => i !== idSaiu);
+      if(isHost){ conns = conns.filter(conn => conn.peer !== idSaiu); broadcast({t:"leave", id:idSaiu}); }
     }
-
-    count.textContent=`Jogadores: ${Object.keys(outros).length+1} / ${MAX_PLAYERS}`;
   });
 }
 
-function broadcast(m,ignore){conns.forEach(c=>{if(c.open&&c.peer!==ignore)c.send(m);});}
+function broadcast(m, ignore) { conns.forEach(c => { if(c.open && c.peer !== ignore) c.send(m); }); }
 
-// SE TORNAR HOST
-function becomeHost(){
-  alert("O host saiu! Você agora é o host.");
-  isHost=true;
-  peer.disconnect(); peer.destroy();
-  const sala=roomIn.value||"ABC123";
-  peer=new Peer("H_"+sala);
-
-  peer.on("open",()=>{status.textContent="HOST "+sala; ready=true; broadcast({t:"sync",all:{...outros,[eu.id]:eu},order:joinOrder});});
-  peer.on("connection",setupConn);
-
-  // Reconectar clientes
-  for(let i in outros){
-    if(i!==eu.id){
-      const c=peer.connect(i); setupConn(c);
-    }
+function leaveRoom(){
+  if(!ready) return;
+  if(isHost){
+    broadcast({t:"closeRoom"});
+    alert("Você saiu. A sala foi fechada.");
+    location.reload();
+  } else {
+    conns[0]?.send({t:"leave", id:eu.id});
+    location.reload();
   }
 }
 
-// CHAT
-function toggleChat(){chat.style.display=chat.style.display==="flex"?"none":"flex";}
-function addMsg(n,t){const d=document.createElement("div"); const b=document.createElement("b"); b.textContent=n+": "; d.appendChild(b); d.appendChild(document.createTextNode(t)); msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight;}
+function toggleChat(){ chat.style.display = chat.style.display === "flex" ? "none" : "flex"; }
+function addMsg(n,t){ const d=document.createElement("div"); d.innerHTML=`<b>${n}:</b> ${t}`; msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight; }
 
-chatInput.onkeydown=e=>{
-  if(e.key==="Enter"&&e.target.value.trim()){
-    const m=e.target.value.slice(0,60);
-    eu.msg=m; eu.msgTime=Date.now();
-    addMsg("Você",m);
-    const d={t:"chat",id:eu.id,name:eu.name,msg:m};
-    isHost?broadcast(d):conns[0]?.send(d);
-    e.target.value="";
+chatInput.onkeydown = e => {
+  if(e.key === "Enter" && e.target.value.trim()){
+    const m = e.target.value.slice(0,60);
+    eu.msg = m; eu.msgTime = Date.now();
+    addMsg("Você", m);
+    const d = {t:"chat", id:eu.id, name:eu.name, msg:m};
+    isHost ? broadcast(d) : conns[0]?.send(d);
+    e.target.value = "";
   }
 };
 
-// JOYSTICK
+/* JOYSTICK */
 let joy={x:0,y:0},active=false;
 joystick.onmousedown=()=>active=true;
 window.onmousemove=e=>active&&moveJoy(e);
@@ -198,15 +188,20 @@ function moveJoy(e){
   const r=joystick.getBoundingClientRect();
   let dx=e.clientX-r.left-60, dy=e.clientY-r.top-60;
   const d=Math.hypot(dx,dy); if(d>40){dx*=40/d;dy*=40/d;}
-  joy.x=dx/40; joy.y=dy/40; stick.style.transform=`translate(${dx}px,${dy}px)`;
+  joy.x=dx/40; joy.y=dy/40;
+  stick.style.transform=`translate(${dx}px,${dy}px)`;
 }
 function resetJoy(){active=false;joy={x:0,y:0};stick.style.transform="translate(0,0)";}
 
-// LOOP
+/* LOOP */
 function loop(){
   requestAnimationFrame(loop);
   if(!ready) return;
-  if(joy.x||joy.y){eu.x+=joy.x*5; eu.y+=joy.y*5; const m={t:"move",id:eu.id,x:eu.x,y:eu.y}; isHost?broadcast(m):conns[0]?.send(m);}
+  if(joy.x||joy.y){
+    eu.x+=joy.x*5; eu.y+=joy.y*5;
+    const m={t:"move",id:eu.id,x:eu.x,y:eu.y};
+    isHost?broadcast(m):conns[0]?.send(m);
+  }
   ctx.clearRect(0,0,canvas.width,canvas.height);
   const camX=eu.x-canvas.width/2, camY=eu.y-canvas.height/2;
   draw(eu,true);
@@ -214,14 +209,17 @@ function loop(){
 
   function draw(p,me){
     const x=p.x-camX, y=p.y-camY;
-    ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(x,y,25,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(x,y,25,0,Math.PI*2); ctx.fill();
     ctx.strokeStyle="#fff"; ctx.stroke();
-    ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.fillText(me?p.name+" (EU)":p.name,x,y-35);
+    ctx.fillStyle="#fff"; ctx.textAlign="center";
+    ctx.fillText(me?p.name+" (EU)":p.name,x,y-35);
     if(p.msg && Date.now()-p.msgTime<4000){
       const w=ctx.measureText(p.msg).width;
       ctx.fillStyle="rgba(0,0,0,.7)";
       ctx.fillRect(x-w/2-10,y-72,w+20,24);
-      ctx.fillStyle="#fff"; ctx.fillText(p.msg,x,y-55);
+      ctx.fillStyle="#fff";
+      ctx.fillText(p.msg,x,y-55);
     }
   }
 }
